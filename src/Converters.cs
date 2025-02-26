@@ -249,6 +249,7 @@ namespace tja2fumen
             var totalDrumrollsDuration = new Dictionary<string, float> { { "normal", 0 }, { "professional", 0 }, { "master", 0 } };
             List<string>? branchTypes = null;
             List<(float, float)>? branchConditions = null;
+
             foreach (var pair in tjaBranchesProcessed)
             {
                 var currentBranch = pair.Key;
@@ -262,6 +263,7 @@ namespace tja2fumen
                 var branchPointsTotal = 0;
                 var branchPointsMeasure = 0;
                 var currentDrumRoll = new FumenNote();
+                var currentDrumRollMultiplier = 1;
                 var currentLevelhold = false;
                 branchTypes = new List<string>();
                 branchConditions = new List<(float, float)>();
@@ -350,7 +352,7 @@ namespace tja2fumen
                                 // Alr?
                                 currentDrumRoll.duration += notePos - 0.0f;
                             }
-                            totalDrumrollsDuration[currentBranch] += currentDrumRoll.duration;
+                            totalDrumrollsDuration[currentBranch] += (currentDrumRoll.duration * currentDrumRollMultiplier);
                             currentDrumRoll.duration = (float)((int)currentDrumRoll.duration);
                             currentDrumRoll = new FumenNote();
                             continue;
@@ -381,8 +383,12 @@ namespace tja2fumen
                         switch (note.noteType)
                         {
                         case "Drumroll":
+                            currentDrumRoll = note;
+                            currentDrumRollMultiplier = 1;
+                            break;
                         case "DRUMROLL":
                             currentDrumRoll = note;
+                            currentDrumRollMultiplier = 2;
                             break;
                         case "Balloon":
                         case "Kusudama":
@@ -421,6 +427,7 @@ namespace tja2fumen
                             break;
                         case "DON":
                         case "KA":
+                            totalNotes[currentBranch] += 1;
                             ptsToAdd = fumen.header.b484_b487_branch_pts_good_big;
                             break;
                         case "Balloon":
@@ -527,8 +534,20 @@ namespace tja2fumen
                 fumen.header.b464_b467_normal_master_ratio =
                     (int)(65536 * (totalNotes["normal"] / totalNotes["master"]));
             }
-            var totalScore = (1000000.0 - (totalBallonsHits.Values.Max() * 100) -
-                totalDrumrollsDuration.Values.Max() * 1.6920079999994086) / totalNotes.Values.Max();
+
+            // For balloons, the last hit that pops the balloon awards 5000 points, and previous hits award 300 apiece.
+            var balloonScore = ((totalBallonsHits.Values.Max() - tja.balloon.Count) * 300) + (tja.balloon.Count * 5000);
+
+            // This scaling factor was empirically determined from a few reference files.
+            var drumRollScore = ((totalDrumrollsDuration.Values.Max()) * .872 );
+
+            // The linearizedScore is the contribution of hitting notes, which is a function of the total note quantity, which
+            // is 1 per small note + 2 per large note.
+            var linearizedScore = (1000000.0 - balloonScore - drumRollScore);
+
+            // The total score is the value for each note hit. The rounding machinations ensure that it's the smallest multiple of
+            // 10 that results in a score >= 1000000
+            var totalScore = linearizedScore / totalNotes.Values.Max();
             fumen.shinuchiScore = (int)(Math.Ceiling(totalScore / 10) * 10);
 
             return fumen;
